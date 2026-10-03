@@ -56,6 +56,12 @@ build:
 
 up:
 	docker compose up -d --build
+	@echo ""
+	@echo "Приложение запущено:"
+	@echo "  Swagger UI:  http://localhost:8000/docs"
+	@echo "  Health:      http://localhost:8000/health"
+	@echo "  Items API:   http://localhost:8000/items"
+	@echo "Логи:          make logs"
 
 down:
 	docker compose down
