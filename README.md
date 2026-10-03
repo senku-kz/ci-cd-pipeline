@@ -55,14 +55,31 @@ make down        # docker compose down
 
 Само приложение (`app/`) пока не требует переменных окружения — конфигурации нет.
 `.env.example` документирует переменные, которые использует **деплой** (`scripts/deploy.sh`
-и `cd.yml`): `GHCR_IMAGE`, `IMAGE_TAG`, `APP_PORT`. В GitHub Actions они приходят из
-secrets и `github.sha`, на VM — передаются по SSH при вызове деплой-скрипта. Если позже
-в приложение добавится конфигурация (например, URL базы данных), копируйте
+и `cd.yml`): `GHCR_IMAGE`, `IMAGE_TAG`, `APP_PORT`, `ENV_NAME` (`master`/`test`/`dev` — определяет
+имя контейнера `fastapi-demo-<env>`). В GitHub Actions они приходят из secrets, `github.sha`
+и джоба `resolve-env`, на VM — передаются по SSH при вызове деплой-скрипта. `deploy.sh`
+намеренно фейлится, если `ENV_NAME`/`APP_PORT` не заданы — на одной VM с тремя окружениями
+тихий дефолт порта — ровно тот баг, из-за которого `test`/`dev` может случайно затереть `master`.
+Если позже в приложение добавится конфигурация (например, URL базы данных), копируйте
 `.env.example` → `.env` и подключите `python-dotenv` в `app/main.py`.
+
+## Ветки и окружения
+
+Три ветки, promotion-flow `dev → test → master` (через PR), каждая деплоится на **одну и ту же**
+Oracle VM, но в свой контейнер на своём порту — все три окружения работают одновременно:
+
+| Ветка    | Порт на VM | Контейнер              | Теги образа в GHCR                    |
+|----------|------------|-------------------------|-----------------------------------------|
+| `master` | `8000`     | `fastapi-demo-master`  | `:master`, `:master-<sha>`, `:latest`  |
+| `test`   | `8100`     | `fastapi-demo-test`    | `:test`, `:test-<sha>`                 |
+| `dev`    | `8200`     | `fastapi-demo-dev`     | `:dev`, `:dev-<sha>`                   |
+
+`:latest` ставится только из `master`, чтобы push в `test`/`dev` не затирал "последний стабильный
+прод". Деплоится всегда конкретный `<env>-<sha>`, а не "плывущий" тег ветки.
 
 ## Pipeline
 
-### CI (`.github/workflows/ci.yml`) — на каждый PR и push
+### CI (`.github/workflows/ci.yml`) — на каждый PR и push в `master`/`test`/`dev`
 
 ```
 lint-and-test (ruff + black + pytest)
@@ -71,12 +88,16 @@ lint-and-test (ruff + black + pytest)
    └── codeql       (needs: lint-and-test)  — алерты попадают в таб Security, не фейлят job
 ```
 
-### CD (`.github/workflows/cd.yml`) — только после успешного CI на `master`
+### CD (`.github/workflows/cd.yml`) — после успешного CI на `master`/`test`/`dev`
 
 ```
-build-and-push  — multi-arch (amd64+arm64) образ → ghcr.io, теги :latest и :<sha>
-   └── deploy    (needs: build-and-push) — SSH на Oracle VM, scripts/deploy.sh
+resolve-env     — case по branch → env_name + app_port (8000/8100/8200)
+   └── build-and-push  (needs: resolve-env) — multi-arch образ → ghcr.io, теги :<env>, :<env>-<sha> (+:latest на master)
+         └── deploy    (needs: [resolve-env, build-and-push]) — SSH на Oracle VM, scripts/deploy.sh
 ```
+
+Деплои разных окружений идут параллельно и независимо; `concurrency: group: deploy-<env_name>`
+не даёт пересечься только двум деплоям в *одно и то же* окружение подряд.
 
 ## Ручная настройка (один раз)
 
@@ -94,6 +115,9 @@ build-and-push  — multi-arch (amd64+arm64) образ → ghcr.io, теги :l
 4. После первого успешного push образа: Packages → `ci-cd-pipeline` → Package settings →
    **Change visibility → Public** (чтобы VM могла `docker pull` без логина в GHCR).
 5. Settings → Code security and analysis → включить **Dependabot alerts**.
+6. Settings → Branches → добавить правила защиты для `master` и `test`: требовать прохождение
+   статус-чека `lint-and-test` (опционально `bandit`/`pip-audit`) перед merge. `dev` оставить
+   без защиты для быстрой итерации — это формализует promotion-flow `dev → test → master`.
 
 ### Oracle Cloud
 
@@ -108,10 +132,10 @@ build-and-push  — multi-arch (amd64+arm64) образ → ghcr.io, теги :l
    - Образ ОС: Ubuntu 22.04/24.04.
    - При создании сгенерировать **отдельную** SSH-пару для деплоя — приватный ключ пойдёт
      в секрет `SSH_PRIVATE_KEY`.
-3. Сеть: открыть порты **22** и **80** в двух местах —
+3. Сеть: открыть порты **22, 8000, 8100, 8200** в двух местах —
    - Security List / Network Security Group в VCN (на уровне Oracle Cloud);
-   - firewall на самой машине (`iptables`/`ufw`) — это частая причина "порт открыт в
-     консоли, но всё равно не коннектится".
+   - firewall на самой машине (`ufw`): `sudo ufw allow 8000/tcp && sudo ufw allow 8100/tcp && sudo ufw allow 8200/tcp`
+     — это частая причина "порт открыт в консоли, но всё равно не коннектится" (забыли второй уровень).
 4. Зайти на VM по SSH вручную один раз:
    ```bash
    curl -fsSL https://get.docker.com | sh
@@ -130,6 +154,9 @@ build-and-push  — multi-arch (amd64+arm64) образ → ghcr.io, теги :l
   популярных регионах; пробовать другие AD/регионы перед fallback на x86.
 - **Bandit/pip-audit false positives** — управляются явно: `--severity-level` у Bandit,
   `--ignore-vuln <ID>` у pip-audit (с комментарием, почему исключение принято).
+- **Dependabot целится только в default branch** (`master`) — `test`/`dev` не получают
+  автоматические PR на обновление зависимостей, если явно не добавить `target-branch`
+  в `dependabot.yml`.
 
 ## Идеи для расширения (stretch exercises)
 

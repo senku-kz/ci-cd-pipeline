@@ -3,8 +3,15 @@ set -euo pipefail
 
 IMAGE="${GHCR_IMAGE:?must set GHCR_IMAGE}"
 TAG="${IMAGE_TAG:?must set IMAGE_TAG}"
-CONTAINER_NAME="fastapi-demo"
-PORT="${APP_PORT:-80}"
+ENV_NAME="${ENV_NAME:?must set ENV_NAME (master|test|dev)}"
+PORT="${APP_PORT:?must set APP_PORT}"
+
+case "${ENV_NAME}" in
+  master|test|dev) ;;
+  *) echo "Unknown ENV_NAME '${ENV_NAME}' (expected master|test|dev)" >&2; exit 1 ;;
+esac
+
+CONTAINER_NAME="fastapi-demo-${ENV_NAME}"
 
 echo "Pulling ${IMAGE}:${TAG}..."
 docker pull "${IMAGE}:${TAG}"
