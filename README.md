@@ -13,12 +13,12 @@ pipeline: от коммита до работающего в облаке сер
 
 ## Локальная разработка
 
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt -r requirements-dev.txt
+Все рутинные команды собраны в `Makefile` — `make help` показывает список.
 
-uvicorn app.main:app --reload
+```bash
+make venv       # python3.12 -m venv .venv
+make install    # pip install -r requirements.txt -r requirements-dev.txt
+make run        # uvicorn app.main:app --reload
 # http://localhost:8000/health
 # http://localhost:8000/items
 ```
@@ -26,22 +26,39 @@ uvicorn app.main:app --reload
 Тесты и проверки:
 
 ```bash
-pytest -v
-ruff check .
-black --check .
-bandit -r app/ --severity-level high
-pip-audit -r requirements.txt
+make test       # pytest -v
+make lint       # ruff check .
+make format     # black .  (make format-check — только проверка, без изменений)
+make security   # bandit --severity-level high + pip-audit
+```
+
+Эквивалентные "сырые" команды (если Makefile недоступен, например на Windows без make):
+
+```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+uvicorn app.main:app --reload
+pytest -v && ruff check . && black --check .
+bandit -r app/ --severity-level high && pip-audit -r requirements.txt
 ```
 
 ## Docker
 
 ```bash
-docker build -t ci-cd-pipeline:local .
-docker run -p 8000:8000 ci-cd-pipeline:local
-curl http://localhost:8000/health
+make build      # docker build -t ci-cd-pipeline:local .
+make up          # docker compose up -d --build
+make logs        # docker compose logs -f
+make down        # docker compose down
 ```
 
-Или через `docker-compose up`.
+## Переменные окружения
+
+Само приложение (`app/`) пока не требует переменных окружения — конфигурации нет.
+`.env.example` документирует переменные, которые использует **деплой** (`scripts/deploy.sh`
+и `cd.yml`): `GHCR_IMAGE`, `IMAGE_TAG`, `APP_PORT`. В GitHub Actions они приходят из
+secrets и `github.sha`, на VM — передаются по SSH при вызове деплой-скрипта. Если позже
+в приложение добавится конфигурация (например, URL базы данных), копируйте
+`.env.example` → `.env` и подключите `python-dotenv` в `app/main.py`.
 
 ## Pipeline
 
@@ -54,7 +71,7 @@ lint-and-test (ruff + black + pytest)
    └── codeql       (needs: lint-and-test)  — алерты попадают в таб Security, не фейлят job
 ```
 
-### CD (`.github/workflows/cd.yml`) — только после успешного CI на `main`
+### CD (`.github/workflows/cd.yml`) — только после успешного CI на `master`
 
 ```
 build-and-push  — multi-arch (amd64+arm64) образ → ghcr.io, теги :latest и :<sha>
