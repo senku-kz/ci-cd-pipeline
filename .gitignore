@@ -1,0 +1,9 @@
+.venv/
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+bandit-report.json
+.env
+*.db
