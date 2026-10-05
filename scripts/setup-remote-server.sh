@@ -79,9 +79,9 @@ else
     success "ufw включен"
 fi
 
-# Открываем необходимые порты
-PORTS=(22 8000 8100 8200)
-PORTS_NAMES=("SSH" "master" "test" "dev")
+# Открываем необходимые порты (22 уже открыт для удаленной работы)
+PORTS=(8000 8100 8200)
+PORTS_NAMES=("master" "test" "dev")
 
 for i in "${!PORTS[@]}"; do
     PORT=${PORTS[$i]}
