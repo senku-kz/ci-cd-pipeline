@@ -99,6 +99,31 @@ resolve-env     — case по branch → env_name + app_port (8000/8100/8200)
 Деплои разных окружений идут параллельно и независимо; `concurrency: group: deploy-<env_name>`
 не даёт пересечься только двум деплоям в *одно и то же* окружение подряд.
 
+## Подготовка окружения
+
+### Удаленный сервер (один раз)
+
+На сервере выполните **автоматизированную подготовку**:
+
+```bash
+# Клонируйте репо или скопируйте скрипт
+curl -o setup-remote-server.sh https://raw.githubusercontent.com/<user>/<repo>/master/scripts/setup-remote-server.sh
+
+# Запустите с sudo (требуется для Docker и firewall)
+sudo bash setup-remote-server.sh
+
+# Переподключитесь (для применения прав группы docker)
+exit
+ssh -i ~/.ssh/your-key ubuntu@server-ip
+docker ps  # Проверьте
+```
+
+Подробнее: [scripts/README.md](scripts/README.md)
+
+### GitHub (один раз)
+
+Следующие шаги выполняются **один раз** на GitHub:
+
 ## Ручная настройка (один раз)
 
 ### GitHub
