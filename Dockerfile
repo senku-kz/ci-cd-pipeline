@@ -1,5 +1,5 @@
 # ---- builder stage: install deps into a venv ----
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 WORKDIR /app
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
@@ -7,7 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ---- runtime stage: slim image, non-root user ----
-FROM python:3.12-slim
+FROM python:3.15-slim
 RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
